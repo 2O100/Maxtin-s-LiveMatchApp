@@ -1,73 +1,108 @@
 using UnityEngine;
-using TMPro; // À remplacer par UnityEngine.UI si tu n'utilises pas TextMeshPro
+using TMPro;
 
-public class LauncherManager : MonoBehaviour
+public class LauchManager : MonoBehaviour
 {
-    [Header("--- Champs de Saisie UI ---")]
-    [SerializeField] private TMP_InputField inputTwitchChannel;
+    [Header("--- Input Fields ---")]
+    [SerializeField] private TMP_InputField inputTwitch;
     [SerializeField] private TMP_InputField inputApiKey;
     [SerializeField] private TMP_InputField inputMatchId;
 
-    [Header("--- Interface & Gestionnaires ---")]
-    [SerializeField] private GameObject setupPanel;
-    [SerializeField] private TwitchChatReceiver twitchReceiver;
+    [Header("--- UI References ---")]
+    [SerializeField] private GameObject panelSetup;
+    [SerializeField] private GameObject buttonConfig;
+    [SerializeField] private TMP_Text textStatus;
+
+    [Header("--- Managers ---")]
     [SerializeField] private APIManager apiManager;
+    [SerializeField] private TwitchChatReceiver twitchManager; // 🔴 AJOUT DU MANAGER TWITCH
 
     private void Start()
     {
-        // Charger automatiquement les dernières valeurs saisies
-        if (inputTwitchChannel != null && PlayerPrefs.HasKey("PREF_TWITCH_CHANNEL"))
-            inputTwitchChannel.text = PlayerPrefs.GetString("PREF_TWITCH_CHANNEL");
+        // Charger automatiquement les informations sauvegardées lors de la dernière session
+        if (inputTwitch) inputTwitch.text = PlayerPrefs.GetString("Saved_TwitchChannel", "");
+        if (inputApiKey) inputApiKey.text = PlayerPrefs.GetString("Saved_ApiKey", "");
+        if (inputMatchId) inputMatchId.text = PlayerPrefs.GetString("Saved_MatchId", "");
 
-        if (inputApiKey != null && PlayerPrefs.HasKey("PREF_API_KEY"))
-            inputApiKey.text = PlayerPrefs.GetString("PREF_API_KEY");
-
-        if (inputMatchId != null && PlayerPrefs.HasKey("PREF_MATCH_ID"))
-            inputMatchId.text = PlayerPrefs.GetString("PREF_MATCH_ID");
+        if (textStatus) textStatus.text = "";
     }
 
-    /// <summary>
-    /// Méthode reliée au bouton "Démarrer" de ton UI.
-    /// </summary>
     public void OnStartClicked()
     {
-        // 1. Déclaration et récupération des chaînes de caractères depuis les champs UI
-        string channel = inputTwitchChannel != null ? inputTwitchChannel.text.Trim() : "";
-        string key = inputApiKey != null ? inputApiKey.text.Trim() : "";
-        string mId = inputMatchId != null ? inputMatchId.text.Trim() : "";
+        string twitchChannel = inputTwitch ? inputTwitch.text.Trim() : "";
+        string apiKey = inputApiKey ? inputApiKey.text.Trim() : "";
+        string matchId = inputMatchId ? inputMatchId.text.Trim() : "";
 
-        // 2. Vérification que rien n'est vide
-        if (string.IsNullOrEmpty(channel) || string.IsNullOrEmpty(key) || string.IsNullOrEmpty(mId))
+        // 1. Contrôle des saisies (Feedback visuel)
+        if (string.IsNullOrEmpty(apiKey))
         {
-            Debug.LogWarning("[Launcher] Merci de remplir tous les champs !");
+            ShowStatus("Erreur : La clé API est requise.", Color.red);
             return;
         }
 
-        // 3. Sauvegarde locale dans PlayerPrefs
-        PlayerPrefs.SetString("PREF_TWITCH_CHANNEL", channel);
-        PlayerPrefs.SetString("PREF_API_KEY", key);
-        PlayerPrefs.SetString("PREF_MATCH_ID", mId);
+        if (string.IsNullOrEmpty(matchId))
+        {
+            ShowStatus("Erreur : Veuillez saisir un ID de match.", Color.red);
+            return;
+        }
+
+        // 2. Sauvegarde automatique dans le registre (PlayerPrefs)
+        PlayerPrefs.SetString("Saved_TwitchChannel", twitchChannel);
+        PlayerPrefs.SetString("Saved_ApiKey", apiKey);
+        PlayerPrefs.SetString("Saved_MatchId", matchId);
         PlayerPrefs.Save();
 
-        // 4. Transmission à TwitchReceiver
-        if (twitchReceiver != null)
-        {
-            twitchReceiver.channelName = channel;
-            twitchReceiver.StartConnection();
-        }
+        ShowStatus("Connexion en cours...", Color.yellow);
 
-        // 5. Transmission à APIManager et lancement des requêtes
+        // 3. Lancer la récupération via l'APIManager si nécessaire
         if (apiManager != null)
         {
-            apiManager.apiKey = key;     // Transmet la clé API
-            apiManager.matchId = mId;    // Transmet l'ID du match
-            apiManager.StartPolling();
+            // apiManager.StartFetching(apiKey, matchId);
         }
 
-        // 6. Fermeture du panneau de configuration
-        if (setupPanel != null)
+        // 4. 🔴 DÉCLENCHEMENT DU CHAT TWITCH
+        if (twitchManager != null && !string.IsNullOrEmpty(twitchChannel))
         {
-            setupPanel.SetActive(false);
+            twitchManager.ConnectToChannel(twitchChannel);
         }
+
+        // 5. Masquer le panneau de setup et afficher le bouton Config
+        if (panelSetup) panelSetup.SetActive(false);
+        if (buttonConfig) buttonConfig.SetActive(true);
+    }
+
+    /// <summary>
+    /// Affiche un message d'information ou d'erreur sur l'UI
+    /// </summary>
+    public void ShowStatus(string message, Color color)
+    {
+        if (textStatus != null)
+        {
+            textStatus.color = color;
+            textStatus.text = message;
+        }
+    }
+
+    /// <summary>
+    /// Bascule entre le mode Plein Écran et le mode Fenêtré
+    /// </summary>
+    public void ToggleFullscreen()
+    {
+        Screen.fullScreen = !Screen.fullScreen;
+    }
+
+    /// <summary>
+    /// Ferme l'application (fonctionne sur le .exe et dans l'éditeur Unity)
+    /// </summary>
+    public void OnQuitClicked()
+    {
+        Debug.Log("Fermeture de l'application...");
+
+        Application.Quit();
+
+        // Permet de tester la fermeture directement dans l'éditeur Unity
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#endif
     }
 }

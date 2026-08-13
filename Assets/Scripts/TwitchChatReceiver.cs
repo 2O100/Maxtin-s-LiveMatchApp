@@ -26,15 +26,26 @@ public class TwitchChatReceiver : MonoBehaviour
     // File d'attente thread-safe pour transmettre les messages au Main Thread de Unity
     private readonly Queue<ChatMessageData> incomingQueue = new Queue<ChatMessageData>();
 
+    public void ConnectToChannel(string targetChannel)
+    {
+        if (string.IsNullOrEmpty(targetChannel)) return;
+
+        Disconnect();
+
+        channelName = targetChannel.Trim().Replace("#", "").ToLower();
+
+        if (!matchManager) matchManager = GetComponent<MatchManager>();
+
+        ConnectToTwitch();
+    }
+
     public void StartConnection()
     {
-        if (!matchManager) matchManager = GetComponent<MatchManager>();
-        ConnectToTwitch();
+        ConnectToChannel(channelName);
     }
 
     private void Update()
     {
-        // Consommation des messages reçus sur le thread principal d'Unity
         lock (incomingQueue)
         {
             while (incomingQueue.Count > 0)
@@ -56,22 +67,24 @@ public class TwitchChatReceiver : MonoBehaviour
             reader = new StreamReader(twitchClient.GetStream());
             writer = new StreamWriter(twitchClient.GetStream());
 
-            // Identifiant anonyme autorisé par Twitch (justinfan + chiffres)
             string anonUser = "justinfan" + UnityEngine.Random.Range(10000, 99999);
 
             writer.WriteLine("PASS oauth:none");
             writer.WriteLine("NICK " + anonUser);
             writer.WriteLine("USER " + anonUser + " 8 * :" + anonUser);
-            writer.WriteLine("JOIN #" + channelName.ToLower());
+
+            // 🟢 Demande à Twitch de nous envoyer les tags d'émotes
+            writer.WriteLine("CAP REQ :twitch.tv/tags");
+
+            writer.WriteLine("JOIN #" + channelName);
             writer.Flush();
 
             isConnected = true;
 
-            // Lecture sur un Thread séparé pour ne jamais faire ramer le jeu
             readThread = new Thread(ReadTwitchChat) { IsBackground = true };
             readThread.Start();
 
-            Debug.Log($"[Twitch] Connecté au chat de #{channelName.ToLower()}");
+            Debug.Log($"[Twitch] Connecté avec succès au chat de #{channelName}");
         }
         catch (Exception e)
         {
@@ -100,7 +113,6 @@ public class TwitchChatReceiver : MonoBehaviour
 
     private void ParseTwitchLine(string rawLine)
     {
-        // Répondre au Ping automatique de Twitch pour maintenir la connexion
         if (rawLine.StartsWith("PING"))
         {
             writer.WriteLine("PONG :tmi.twitch.tv");
@@ -108,18 +120,40 @@ public class TwitchChatReceiver : MonoBehaviour
             return;
         }
 
-        // Format IRC standard : :pseudo!pseudo@pseudo.tmi.twitch.tv PRIVMSG #chaine :message
         if (rawLine.Contains("PRIVMSG"))
         {
             try
             {
-                int authorEnd = rawLine.IndexOf("!");
-                string author = rawLine.Substring(1, authorEnd - 1);
+                string tags = "";
+                string lineWithoutTags = rawLine;
 
-                int msgStart = rawLine.IndexOf(" :", authorEnd);
-                string message = rawLine.Substring(msgStart + 2);
+                // Si la ligne contient des tags Twitch (commence par @)
+                if (rawLine.StartsWith("@"))
+                {
+                    int spaceIdx = rawLine.IndexOf(" ");
+                    tags = rawLine.Substring(1, spaceIdx - 1);
+                    lineWithoutTags = rawLine.Substring(spaceIdx + 1);
+                }
 
-                // Couleur attribuée au pseudo
+                int authorEnd = lineWithoutTags.IndexOf("!");
+                string author = lineWithoutTags.Substring(1, authorEnd - 1);
+
+                int msgStart = lineWithoutTags.IndexOf(" :", authorEnd);
+                string message = lineWithoutTags.Substring(msgStart + 2);
+
+                // Nettoyage \u0001 /me
+                if (message.StartsWith("\u0001ACTION ") && message.EndsWith("\u0001"))
+                {
+                    message = "*" + message.Substring(8, message.Length - 9) + "*";
+                }
+                else
+                {
+                    message = message.Replace("\u0001", "");
+                }
+
+                // Traitement et conversion des émotes
+                message = ParseEmotesFromTags(tags, message);
+
                 string color = userColors[Mathf.Abs(author.GetHashCode()) % userColors.Length];
 
                 lock (incomingQueue)
@@ -139,9 +173,73 @@ public class TwitchChatReceiver : MonoBehaviour
         }
     }
 
-    private void OnDestroy()
+    private string ParseEmotesFromTags(string tags, string message)
+    {
+        if (string.IsNullOrEmpty(tags)) return message;
+
+        string[] tagList = tags.Split(';');
+        foreach (string tag in tagList)
+        {
+            if (tag.StartsWith("emotes="))
+            {
+                string emoteData = tag.Substring(7);
+                if (string.IsNullOrEmpty(emoteData)) break;
+
+                // Format: emoteId:start-end,start-end/emoteId2:start-end
+                string[] emoteEntries = emoteData.Split('/');
+                foreach (string entry in emoteEntries)
+                {
+                    string[] parts = entry.Split(':');
+                    if (parts.Length < 2) continue;
+
+                    string emoteId = parts[0];
+                    string[] positions = parts[1].Split(',');
+
+                    if (positions.Length > 0)
+                    {
+                        string[] range = positions[0].Split('-');
+                        if (range.Length == 2 && int.TryParse(range[0], out int start) && int.TryParse(range[1], out int end))
+                        {
+                            if (start < message.Length && end < message.Length && end >= start)
+                            {
+                                string emoteWord = message.Substring(start, end - start + 1);
+
+                                // Demander le téléchargement de l'émote
+                                if (TwitchEmoteManager.Instance != null)
+                                {
+                                    TwitchEmoteManager.Instance.RequestEmote(emoteId);
+                                }
+
+                                // Remplacer le texte par la balise sprite TMP
+                                message = message.Replace(emoteWord, $"<sprite name=\"{emoteId}\">");
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        return message;
+    }
+
+    private void Disconnect()
     {
         isConnected = false;
-        if (twitchClient != null) twitchClient.Close();
+        try
+        {
+            if (reader != null) reader.Close();
+            if (writer != null) writer.Close();
+            if (twitchClient != null) twitchClient.Close();
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[Twitch] Fermeture de la connexion : {e.Message}");
+        }
+    }
+
+    private void OnDestroy()
+    {
+        Disconnect();
     }
 }
