@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 
 public class MatchManager : MonoBehaviour
@@ -16,26 +17,29 @@ public class MatchManager : MonoBehaviour
 
     [Header("--- Références Terrain & Prefabs ---")]
     [SerializeField] private RectTransform zoneTeamA;
-    [SerializeField] private RectTransform zoneTeamB;
     [SerializeField] private GameObject playerPrefab;
 
     [Header("--- Références Fil d'Événements ---")]
     [SerializeField] private Transform eventsContent;
     [SerializeField] private GameObject eventPrefab;
 
+    [Header("--- Références Chat en Direct ---")]
+    [SerializeField] private Transform chatContent;
+    [SerializeField] private GameObject chatItemPrefab;
+    [SerializeField] private ScrollRect chatScrollRect;
+
+    // Banque de messages fictifs pour la simulation
+    private List<ChatMessageData> mockChatPool = new List<ChatMessageData>();
+
     private void Start()
     {
-        // 1. Initialiser des données de test fictives
         InitMockData();
-
-        // 2. Mettre à jour le tableau d'affichage
         UpdateHeaderUI();
-
-        // 3. Spawner les joueurs sur le terrain
         SpawnPlayers();
-
-        // 4. Charger les événements initiaux
         LoadEvents();
+
+        // Lancement du Chat
+        StartCoroutine(SimulateLiveChat());
     }
 
     private void InitMockData()
@@ -50,15 +54,20 @@ public class MatchManager : MonoBehaviour
             teamB = new TeamData { name = "MANCHESTER UTD", coachName = "M. Carrick" }
         };
 
-        // Exemple de joueurs pour l'équipe A (Positions relatives sur leur zone X: -0.4 à 0.4, Y: -0.4 à 0.4)
         currentMatch.teamA.players.Add(new PlayerData { name = "RAMSDALE", number = 1, pitchPosition = new Vector2(0f, 0.35f) });
         currentMatch.teamA.players.Add(new PlayerData { name = "WHITE", number = 4, pitchPosition = new Vector2(-0.35f, 0.15f) });
         currentMatch.teamA.players.Add(new PlayerData { name = "SALIBA", number = 2, pitchPosition = new Vector2(-0.12f, 0.18f) });
         currentMatch.teamA.players.Add(new PlayerData { name = "GABRIEL", number = 6, pitchPosition = new Vector2(0.12f, 0.18f) });
         currentMatch.teamA.players.Add(new PlayerData { name = "ZINCHENKO", number = 35, pitchPosition = new Vector2(0.35f, 0.15f) });
 
-        // Événement fictif
         currentMatch.events.Add(new EventData { minute = 5, type = "YELLOW_CARD", description = "Carton jaune pour Xhaka" });
+
+        // Messages simulés
+        mockChatPool.Add(new ChatMessageData { author = "Gunner99", message = "COYG !! 🔴⚪", colorHex = "#FF4136" });
+        mockChatPool.Add(new ChatMessageData { author = "RedDevil_Alex", message = "On a du mal en ce début de match...", colorHex = "#0074D9" });
+        mockChatPool.Add(new ChatMessageData { author = "TacticFan", message = "La défense à 4 d'Arsenal est très haute.", colorHex = "#2ECC40" });
+        mockChatPool.Add(new ChatMessageData { author = "SakaMagic", message = "Saka va débloquer la situation !", colorHex = "#FF851B" });
+        mockChatPool.Add(new ChatMessageData { author = "UnitedWay", message = "Carrick doit ajuster le milieu.", colorHex = "#B10DC9" });
     }
 
     private void UpdateHeaderUI()
@@ -71,25 +80,15 @@ public class MatchManager : MonoBehaviour
 
     private void SpawnPlayers()
     {
-        // Nettoyage préalable si besoin
         foreach (Transform child in zoneTeamA) Destroy(child.gameObject);
-
-        // Récupérer la taille de la zone terrain
         Vector2 zoneSize = zoneTeamA.rect.size;
 
         foreach (var player in currentMatch.teamA.players)
         {
             GameObject pItem = Instantiate(playerPrefab, zoneTeamA);
-            
-            // Calcul de la position locale sur le terrain
-            Vector2 localPos = new Vector2(
-                player.pitchPosition.x * zoneSize.x,
-                player.pitchPosition.y * zoneSize.y
-            );
-            
+            Vector2 localPos = new Vector2(player.pitchPosition.x * zoneSize.x, player.pitchPosition.y * zoneSize.y);
             pItem.GetComponent<RectTransform>().anchoredPosition = localPos;
 
-            // Mise à jour des textes du Prefab Joueur
             TMP_Text nameTxt = pItem.transform.Find("Text_PlayerName")?.GetComponent<TMP_Text>();
             TMP_Text numTxt = pItem.transform.Find("Image_Shirt/Text_Number")?.GetComponent<TMP_Text>();
 
@@ -111,5 +110,41 @@ public class MatchManager : MonoBehaviour
             if (timeTxt) timeTxt.text = $"{evt.minute}'";
             if (detailTxt) detailTxt.text = evt.description;
         }
+    }
+
+    private IEnumerator SimulateLiveChat()
+    {
+        int index = 0;
+
+        while (true)
+        {
+            // Attendre entre 2 et 4 secondes
+            yield return new WaitForSeconds(Random.Range(2f, 4f));
+
+            if (mockChatPool.Count > 0)
+            {
+                ChatMessageData msg = mockChatPool[index % mockChatPool.Count];
+                AddChatMessage(msg);
+                index++;
+            }
+        }
+    }
+
+    private void AddChatMessage(ChatMessageData msg)
+    {
+        if (!chatContent || !chatItemPrefab) return;
+
+        GameObject item = Instantiate(chatItemPrefab, chatContent);
+        TMP_Text txt = item.GetComponent<TMP_Text>();
+
+        if (txt)
+        {
+            // Utilisation des Rich Text Tags pour colorer uniquement le pseudo
+            txt.text = $"<color={msg.colorHex}><b>[{msg.author}]</b></color> {msg.message}";
+        }
+
+        // Forcer le défilement vers le bas
+        Canvas.ForceUpdateCanvases();
+        if (chatScrollRect) chatScrollRect.verticalNormalizedPosition = 0f;
     }
 }

@@ -1277,6 +1277,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 627279050}
+  - component: {fileID: 627279051}
   m_Layer: 0
   m_Name: GameManager
   m_TagString: Untagged
@@ -1299,6 +1300,46 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &627279051
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 627279049}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2a93911571cdbd74fbec8f0c25d86873, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MatchManager
+  currentMatch:
+    teamA:
+      name: 
+      teamColor: {r: 1, g: 0, b: 0, a: 1}
+      coachName: 
+      players: []
+    teamB:
+      name: 
+      teamColor: {r: 1, g: 0, b: 0, a: 1}
+      coachName: 
+      players: []
+    scoreA: 0
+    scoreB: 0
+    currentMinute: 0
+    matchStatus: 
+    events: []
+    chatMessages: []
+  textNameA: {fileID: 2081717810}
+  textNameB: {fileID: 1448004535}
+  textScore: {fileID: 1229102259}
+  textTimer: {fileID: 188740538}
+  zoneTeamA: {fileID: 1054705959}
+  playerPrefab: {fileID: 8485045244060026074, guid: d16c0b473d86e8f4fb4695ee2c63e612, type: 3}
+  eventsContent: {fileID: 1489783969}
+  eventPrefab: {fileID: 1475455220558702926, guid: 35c89acb9f275ae4c8d9287cc93dab0a, type: 3}
+  chatContent: {fileID: 150068819}
+  chatItemPrefab: {fileID: 5880602823937220326, guid: 3f4a7f226c6009b479fca759698034c9, type: 3}
+  chatScrollRect: {fileID: 1102232774}
 --- !u!1 &647777676
 GameObject:
   m_ObjectHideFlags: 0
@@ -3569,6 +3610,6 @@ SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
   - {fileID: 519420032}
-  - {fileID: 1677593564}
-  - {fileID: 222863880}
   - {fileID: 627279050}
+  - {fileID: 222863880}
+  - {fileID: 1677593564}
