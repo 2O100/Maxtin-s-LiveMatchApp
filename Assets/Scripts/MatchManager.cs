@@ -28,59 +28,51 @@ public class MatchManager : MonoBehaviour
     [SerializeField] private GameObject chatItemPrefab;
     [SerializeField] private ScrollRect chatScrollRect;
 
-    // Banque de messages fictifs pour la simulation
-    private List<ChatMessageData> mockChatPool = new List<ChatMessageData>();
-
     private void Start()
     {
-        InitMockData();
+        // Au lancement, l'interface attend les premières données envoyées par l'APIManager
+    }
+
+    /// <summary>
+    /// Reçoit les données réelles de l'APIManager et met à jour toute l'interface en direct
+    /// </summary>
+    public void ApplyRealMatchData(MatchData realData)
+    {
+        if (realData == null) return;
+
+        currentMatch = realData;
+
         UpdateHeaderUI();
         SpawnPlayers();
         LoadEvents();
-
-        // Lancement du Chat
-        StartCoroutine(SimulateLiveChat());
     }
 
-    private void InitMockData()
+    /// <summary>
+    /// Met à jour les noms d'équipes, le score et la minute de jeu
+    /// </summary>
+    public void UpdateHeaderUI()
     {
-        currentMatch = new MatchData
-        {
-            scoreA = 0,
-            scoreB = 0,
-            currentMinute = 12,
-            matchStatus = "IN_PROGRESS",
-            teamA = new TeamData { name = "ARSENAL", coachName = "M. Arteta" },
-            teamB = new TeamData { name = "MANCHESTER UTD", coachName = "M. Carrick" }
-        };
+        if (currentMatch == null) return;
 
-        currentMatch.teamA.players.Add(new PlayerData { name = "RAMSDALE", number = 1, pitchPosition = new Vector2(0f, 0.35f) });
-        currentMatch.teamA.players.Add(new PlayerData { name = "WHITE", number = 4, pitchPosition = new Vector2(-0.35f, 0.15f) });
-        currentMatch.teamA.players.Add(new PlayerData { name = "SALIBA", number = 2, pitchPosition = new Vector2(-0.12f, 0.18f) });
-        currentMatch.teamA.players.Add(new PlayerData { name = "GABRIEL", number = 6, pitchPosition = new Vector2(0.12f, 0.18f) });
-        currentMatch.teamA.players.Add(new PlayerData { name = "ZINCHENKO", number = 35, pitchPosition = new Vector2(0.35f, 0.15f) });
-
-        currentMatch.events.Add(new EventData { minute = 5, type = "YELLOW_CARD", description = "Carton jaune pour Xhaka" });
-
-        // Messages simulés
-        mockChatPool.Add(new ChatMessageData { author = "Gunner99", message = "COYG !! 🔴⚪", colorHex = "#FF4136" });
-        mockChatPool.Add(new ChatMessageData { author = "RedDevil_Alex", message = "On a du mal en ce début de match...", colorHex = "#0074D9" });
-        mockChatPool.Add(new ChatMessageData { author = "TacticFan", message = "La défense à 4 d'Arsenal est très haute.", colorHex = "#2ECC40" });
-        mockChatPool.Add(new ChatMessageData { author = "SakaMagic", message = "Saka va débloquer la situation !", colorHex = "#FF851B" });
-        mockChatPool.Add(new ChatMessageData { author = "UnitedWay", message = "Carrick doit ajuster le milieu.", colorHex = "#B10DC9" });
-    }
-
-    private void UpdateHeaderUI()
-    {
-        if (textNameA) textNameA.text = currentMatch.teamA.name;
-        if (textNameB) textNameB.text = currentMatch.teamB.name;
+        if (textNameA && currentMatch.teamA != null) textNameA.text = currentMatch.teamA.name;
+        if (textNameB && currentMatch.teamB != null) textNameB.text = currentMatch.teamB.name;
         if (textScore) textScore.text = $"{currentMatch.scoreA} - {currentMatch.scoreB}";
         if (textTimer) textTimer.text = $"{currentMatch.currentMinute}'";
     }
 
-    private void SpawnPlayers()
+    /// <summary>
+    /// Génère la composition d'équipe sur le terrain
+    /// </summary>
+    public void SpawnPlayers()
     {
-        foreach (Transform child in zoneTeamA) Destroy(child.gameObject);
+        if (currentMatch?.teamA?.players == null) return;
+
+        // Nettoyage des anciens joueurs sur le terrain
+        foreach (Transform child in zoneTeamA)
+        {
+            Destroy(child.gameObject);
+        }
+
         Vector2 zoneSize = zoneTeamA.rect.size;
 
         foreach (var player in currentMatch.teamA.players)
@@ -97,9 +89,18 @@ public class MatchManager : MonoBehaviour
         }
     }
 
-    private void LoadEvents()
+    /// <summary>
+    /// Charge le fil des événements (buts, cartons, changements)
+    /// </summary>
+    public void LoadEvents()
     {
-        foreach (Transform child in eventsContent) Destroy(child.gameObject);
+        if (currentMatch?.events == null) return;
+
+        // Nettoyage de l'ancien fil d'événements
+        foreach (Transform child in eventsContent)
+        {
+            Destroy(child.gameObject);
+        }
 
         foreach (var evt in currentMatch.events)
         {
@@ -112,24 +113,9 @@ public class MatchManager : MonoBehaviour
         }
     }
 
-    private IEnumerator SimulateLiveChat()
-    {
-        int index = 0;
-
-        while (true)
-        {
-            // Attendre entre 2 et 4 secondes
-            yield return new WaitForSeconds(Random.Range(2f, 4f));
-
-            if (mockChatPool.Count > 0)
-            {
-                ChatMessageData msg = mockChatPool[index % mockChatPool.Count];
-                AddChatMessage(msg);
-                index++;
-            }
-        }
-    }
-
+    /// <summary>
+    /// Ajoute un message reçu du chat dans la liste
+    /// </summary>
     private void AddChatMessage(ChatMessageData msg)
     {
         if (!chatContent || !chatItemPrefab) return;
@@ -139,12 +125,24 @@ public class MatchManager : MonoBehaviour
 
         if (txt)
         {
-            // Utilisation des Rich Text Tags pour colorer uniquement le pseudo
             txt.text = $"<color={msg.colorHex}><b>[{msg.author}]</b></color> {msg.message}";
         }
 
-        // Forcer le défilement vers le bas
+        // Forcer le scroll automatique vers le bas
         Canvas.ForceUpdateCanvases();
         if (chatScrollRect) chatScrollRect.verticalNormalizedPosition = 0f;
+    }
+
+    /// <summary>
+    /// Méthode publique appelée par le TwitchChatReceiver
+    /// </summary>
+    public void ReceiveExternalChatMessage(string author, string message, string colorHex)
+    {
+        AddChatMessage(new ChatMessageData
+        {
+            author = author,
+            message = message,
+            colorHex = colorHex
+        });
     }
 }
