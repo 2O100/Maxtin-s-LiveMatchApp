@@ -36,6 +36,7 @@ public class TeamData
     public Color teamColor = Color.red;
     public string coachName;
     public List<PlayerData> players = new List<PlayerData>();
+    public string logoUrl;
 }
 
 [Serializable]

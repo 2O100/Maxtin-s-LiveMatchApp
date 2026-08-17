@@ -15,7 +15,7 @@ public class LauchManager : MonoBehaviour
 
     [Header("--- Managers ---")]
     [SerializeField] private APIManager apiManager;
-    [SerializeField] private TwitchChatReceiver twitchManager; // 🔴 AJOUT DU MANAGER TWITCH
+    [SerializeField] private TwitchChatReceiver twitchManager;
 
     private void Start()
     {
@@ -54,14 +54,16 @@ public class LauchManager : MonoBehaviour
 
         ShowStatus("Connexion en cours...", Color.yellow);
 
-        // 3. Lancer la récupération via l'APIManager si nécessaire
+        // 3. Transmission de la clé + Match ID et lancement de l'API
         if (apiManager != null)
         {
-            // apiManager.StartFetching(apiKey, matchId);
+            apiManager.apiKey = apiKey;
+            apiManager.matchId = matchId;
+            apiManager.RefreshMatchDataManually();
         }
 
-        // 4. 🔴 DÉCLENCHEMENT DU CHAT TWITCH
-        if (twitchManager != null && !string.IsNullOrEmpty(twitchChannel))
+            // 4. Déclenchement du chat Twitch
+            if (twitchManager != null && !string.IsNullOrEmpty(twitchChannel))
         {
             twitchManager.ConnectToChannel(twitchChannel);
         }

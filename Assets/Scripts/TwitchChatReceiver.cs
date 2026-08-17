@@ -185,7 +185,8 @@ public class TwitchChatReceiver : MonoBehaviour
                 string emoteData = tag.Substring(7);
                 if (string.IsNullOrEmpty(emoteData)) break;
 
-                // Format: emoteId:start-end,start-end/emoteId2:start-end
+                List<(int start, int end, string id)> replacements = new List<(int, int, string)>();
+
                 string[] emoteEntries = emoteData.Split('/');
                 foreach (string entry in emoteEntries)
                 {
@@ -195,25 +196,31 @@ public class TwitchChatReceiver : MonoBehaviour
                     string emoteId = parts[0];
                     string[] positions = parts[1].Split(',');
 
-                    if (positions.Length > 0)
+                    foreach (string pos in positions)
                     {
-                        string[] range = positions[0].Split('-');
+                        string[] range = pos.Split('-');
                         if (range.Length == 2 && int.TryParse(range[0], out int start) && int.TryParse(range[1], out int end))
                         {
-                            if (start < message.Length && end < message.Length && end >= start)
+                            replacements.Add((start, end, emoteId));
+
+                            if (TwitchEmoteManager.Instance != null)
                             {
-                                string emoteWord = message.Substring(start, end - start + 1);
-
-                                // Demander le téléchargement de l'émote
-                                if (TwitchEmoteManager.Instance != null)
-                                {
-                                    TwitchEmoteManager.Instance.RequestEmote(emoteId);
-                                }
-
-                                // Remplacer le texte par la balise sprite TMP
-                                message = message.Replace(emoteWord, $"<sprite name=\"{emoteId}\">");
+                                TwitchEmoteManager.Instance.RequestEmote(emoteId);
                             }
                         }
+                    }
+                }
+
+                // Trier du dernier index au premier pour ne pas fausser la chaîne de caractères
+                replacements.Sort((a, b) => b.start.CompareTo(a.start));
+
+                foreach (var r in replacements)
+                {
+                    if (r.start >= 0 && r.end < message.Length && r.end >= r.start)
+                    {
+                        string before = message.Substring(0, r.start);
+                        string after = message.Substring(r.end + 1);
+                        message = $"{before}<sprite name=\"{r.id}\">{after}";
                     }
                 }
                 break;

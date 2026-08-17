@@ -5,42 +5,33 @@ using UnityEngine.Networking;
 
 public class APIManager : MonoBehaviour
 {
-    [Header("--- Configuration Football-Data ---")]
-    [Tooltip("Clé API (Token) reçue par mail depuis football-data.org")]
+    [Header("--- Configuration API-Football ---")]
+    [Tooltip("Clé d'API récupérée sur dashboard.api-football.com")]
     public string apiKey = "";
 
-    [Tooltip("ID du match à suivre (ex: 435987)")]
-    public string matchId = "435987";
-
-    [Tooltip("Intervalle de rafraîchissement en secondes (10s = 6 req/min, respecte la limite de 10 req/min)")]
-    public float pollInterval = 10f;
+    [Tooltip("ID du match à suivre (ex: 1035088)")]
+    public string matchId = "";
 
     [Header("--- Références ---")]
     [SerializeField] private MatchManager matchManager;
 
-    private Coroutine pollingCoroutine;
+    // Positions par défaut (4-3-3) pour placer les cartes proprement au premier chargement
+    private readonly Vector2[] defaultPositions = {
+        new Vector2(0.50f, 0.05f), new Vector2(0.85f, 0.20f), new Vector2(0.60f, 0.18f),
+        new Vector2(0.40f, 0.18f), new Vector2(0.15f, 0.20f), new Vector2(0.50f, 0.35f),
+        new Vector2(0.75f, 0.45f), new Vector2(0.25f, 0.45f), new Vector2(0.85f, 0.70f),
+        new Vector2(0.50f, 0.80f), new Vector2(0.15f, 0.70f)
+    };
 
     /// <summary>
-    /// Démarre le cycle de requêtes automatique vers l'API.
-    /// Appelé par le LauncherManager une fois les champs validés.
+    /// À LIER AU BOUTON "ACTUALISER" DU CLIENT SUR L'INTERFACE
     /// </summary>
-    public void StartPolling()
+    public void RefreshMatchDataManually()
     {
         if (!matchManager) matchManager = GetComponent<MatchManager>();
 
-        // Arrêter une ancienne boucle si elle tournait déjà
-        if (pollingCoroutine != null) StopCoroutine(pollingCoroutine);
-
-        pollingCoroutine = StartCoroutine(FetchMatchDataRoutine());
-    }
-
-    private IEnumerator FetchMatchDataRoutine()
-    {
-        while (true)
-        {
-            yield return StartCoroutine(GetMatchData());
-            yield return new WaitForSeconds(pollInterval);
-        }
+        Debug.Log("[API] Rafraîchissement manuel demandé...");
+        StartCoroutine(GetMatchData());
     }
 
     private IEnumerator GetMatchData()
@@ -51,12 +42,13 @@ public class APIManager : MonoBehaviour
             yield break;
         }
 
-        string url = $"https://api.football-data.org/v4/matches/{matchId}";
+        // Endpoint API-Football (v3)
+        string url = $"https://v3.football.api-sports.io/fixtures?id={matchId}";
 
         using (UnityWebRequest webRequest = UnityWebRequest.Get(url))
         {
-            // En-tête obligatoire pour Football-Data.org
-            webRequest.SetRequestHeader("X-Auth-Token", apiKey);
+            // Header obligatoire
+            webRequest.SetRequestHeader("x-apisports-key", apiKey);
 
             yield return webRequest.SendWebRequest();
 
@@ -65,99 +57,185 @@ public class APIManager : MonoBehaviour
                 string jsonResponse = webRequest.downloadHandler.text;
                 Debug.Log($"[API] Données reçues pour le match #{matchId}");
 
-                // Décodage du JSON
-                FootballDataResponse apiData = JsonUtility.FromJson<FootballDataResponse>(jsonResponse);
+                ApiFootballResponse apiData = JsonUtility.FromJson<ApiFootballResponse>(jsonResponse);
 
-                if (apiData != null && matchManager != null)
+                if (apiData != null && apiData.response != null && apiData.response.Length > 0)
                 {
-                    ConvertAndApplyData(apiData);
+                    ConvertAndApplyData(apiData.response[0]);
+                }
+                else
+                {
+                    Debug.LogWarning("[API] Match introuvable ou quota API dépassé.");
                 }
             }
             else
             {
-                Debug.LogWarning($"[API] Erreur HTTP ({webRequest.responseCode}) : {webRequest.error}");
+                Debug.LogError($"[API] Erreur HTTP ({webRequest.responseCode}) : {webRequest.error}");
             }
         }
     }
 
-    private void ConvertAndApplyData(FootballDataResponse apiData)
+    private void ConvertAndApplyData(MatchDataApi apiMatch)
     {
         if (matchManager.currentMatch == null)
-        {
             matchManager.currentMatch = new MatchData();
-        }
 
-        // 1. Initialisation des équipes si nécessaire
         if (matchManager.currentMatch.teamA == null) matchManager.currentMatch.teamA = new TeamData();
         if (matchManager.currentMatch.teamB == null) matchManager.currentMatch.teamB = new TeamData();
 
-        // 2. Noms d'équipes (Utilisation du nom court ou nom officiel)
-        if (apiData.homeTeam != null)
+        // 1. Noms, Scores & Logos
+        matchManager.currentMatch.teamA.name = apiMatch.teams.home.name.ToUpper();
+        matchManager.currentMatch.teamB.name = apiMatch.teams.away.name.ToUpper();
+
+        matchManager.currentMatch.teamA.logoUrl = apiMatch.teams.home.logo;
+        matchManager.currentMatch.teamB.logoUrl = apiMatch.teams.away.logo;
+
+        matchManager.currentMatch.scoreA = apiMatch.goals.home;
+        matchManager.currentMatch.scoreB = apiMatch.goals.away;
+
+        matchManager.currentMatch.currentMinute = apiMatch.fixture.status.elapsed;
+        matchManager.currentMatch.matchStatus = apiMatch.fixture.status.@short;
+
+        // 2. Compositions (Lineups) & Couleurs Maillots
+        if (apiMatch.lineups != null && apiMatch.lineups.Length >= 2)
         {
-            matchManager.currentMatch.teamA.name = !string.IsNullOrEmpty(apiData.homeTeam.shortName)
-                ? apiData.homeTeam.shortName.ToUpper()
-                : apiData.homeTeam.name.ToUpper();
+            matchManager.currentMatch.teamA.coachName = apiMatch.lineups[0].coach?.name;
+            matchManager.currentMatch.teamB.coachName = apiMatch.lineups[1].coach?.name;
+
+            // Extraction couleur officielle Équipe A
+            if (apiMatch.lineups[0].team?.colors?.player != null)
+            {
+                string hexA = apiMatch.lineups[0].team.colors.player.primary;
+                if (!string.IsNullOrEmpty(hexA))
+                {
+                    if (!hexA.StartsWith("#")) hexA = "#" + hexA;
+                    if (ColorUtility.TryParseHtmlString(hexA, out Color colorA))
+                    {
+                        matchManager.colorTeamA = colorA;
+                    }
+                }
+            }
+
+            // Extraction couleur officielle Équipe B
+            if (apiMatch.lineups[1].team?.colors?.player != null)
+            {
+                string hexB = apiMatch.lineups[1].team.colors.player.primary;
+                if (!string.IsNullOrEmpty(hexB))
+                {
+                    if (!hexB.StartsWith("#")) hexB = "#" + hexB;
+                    if (ColorUtility.TryParseHtmlString(hexB, out Color colorB))
+                    {
+                        matchManager.colorTeamB = colorB;
+                    }
+                }
+            }
+
+            UpdateTeamPlayers(matchManager.currentMatch.teamA, apiMatch.lineups[0].startXI);
+            UpdateTeamPlayers(matchManager.currentMatch.teamB, apiMatch.lineups[1].startXI);
         }
 
-        if (apiData.awayTeam != null)
+        // 3. Événements du match (Events)
+        matchManager.currentMatch.events.Clear();
+        if (apiMatch.events != null)
         {
-            matchManager.currentMatch.teamB.name = !string.IsNullOrEmpty(apiData.awayTeam.shortName)
-                ? apiData.awayTeam.shortName.ToUpper()
-                : apiData.awayTeam.name.ToUpper();
+            foreach (var ev in apiMatch.events)
+            {
+                string pName = ev.player != null ? ev.player.name : "";
+                string details = string.IsNullOrEmpty(pName) ? ev.detail : $"{pName} ({ev.detail})";
+
+                matchManager.currentMatch.events.Add(new EventData
+                {
+                    minute = ev.time.elapsed,
+                    teamName = ev.team.name,
+                    type = ev.type,
+                    description = $"{ev.type} : {details}"
+                });
+            }
+
+            // Événement le plus récent en haut
+            matchManager.currentMatch.events.Reverse();
         }
 
-        // 3. Score
-        if (apiData.score != null && apiData.score.fullTime != null)
-        {
-            matchManager.currentMatch.scoreA = apiData.score.fullTime.home;
-            matchManager.currentMatch.scoreB = apiData.score.fullTime.away;
-        }
-
-        // 4. Minute & Statut du Match
-        matchManager.currentMatch.currentMinute = apiData.minute;
-        matchManager.currentMatch.matchStatus = apiData.status;
-
-        // 5. Rafraîchissement de l'interface graphique
+        // 4. Mise à jour de l'UI
         matchManager.UpdateHeaderUI();
         matchManager.SpawnPlayers();
         matchManager.LoadEvents();
     }
+
+    private void UpdateTeamPlayers(TeamData teamData, PlayerWrapper[] startXI)
+    {
+        if (startXI == null) return;
+
+        bool isFirstLoad = teamData.players.Count == 0;
+
+        for (int i = 0; i < startXI.Length && i < 11; i++)
+        {
+            string pName = startXI[i].player.name;
+            int pNum = startXI[i].player.number;
+
+            if (isFirstLoad)
+            {
+                teamData.players.Add(new PlayerData
+                {
+                    name = pName,
+                    number = pNum,
+                    position = startXI[i].player.pos,
+                    pitchPosition = defaultPositions[i]
+                });
+            }
+            else if (i < teamData.players.Count)
+            {
+                // Maintient la position drag & drop tout en actualisant le joueur
+                teamData.players[i].name = pName;
+                teamData.players[i].number = pNum;
+            }
+        }
+    }
 }
 
 // ============================================================================
-// --- Structure DTO pour mapper le JSON natif de Football-Data.org (v4) ---
+// --- Structure DTO (JSON Mapping v3.football.api-sports.io) ---
 // ============================================================================
+[Serializable] public class ApiFootballResponse { public MatchDataApi[] response; }
+[Serializable] public class MatchDataApi { public FixtureInfo fixture; public TeamsInfo teams; public GoalsInfo goals; public LineupInfo[] lineups; public EventInfo[] events; }
+[Serializable] public class FixtureInfo { public StatusInfo status; }
+[Serializable] public class StatusInfo { public string @short; public int elapsed; }
+[Serializable] public class TeamsInfo { public TeamDetail home; public TeamDetail away; }
+[Serializable] public class TeamDetail { public string name; public string logo; }
+[Serializable] public class GoalsInfo { public int home; public int away; }
 
 [Serializable]
-public class FootballDataResponse
+public class LineupInfo
 {
-    public int id;
-    public string status; // IN_PLAY, PAUSED, FINISHED, TIMED...
-    public int minute;
-    public FDTeam homeTeam;
-    public FDTeam awayTeam;
-    public FDScore score;
+    public LineupTeamDetail team;
+    public CoachInfo coach;
+    public PlayerWrapper[] startXI;
 }
 
 [Serializable]
-public class FDTeam
+public class LineupTeamDetail
 {
-    public int id;
     public string name;
-    public string shortName;
-    public string tla;
+    public TeamColors colors;
 }
 
 [Serializable]
-public class FDScore
+public class TeamColors
 {
-    public string winner;
-    public FDFullTime fullTime;
+    public PlayerColors player;
+    public PlayerColors goalkeeper;
 }
 
 [Serializable]
-public class FDFullTime
+public class PlayerColors
 {
-    public int home;
-    public int away;
+    public string primary;
+    public string number;
+    public string border;
 }
+
+[Serializable] public class CoachInfo { public string name; }
+[Serializable] public class PlayerWrapper { public PlayerDetail player; }
+[Serializable] public class PlayerDetail { public string name; public int number; public string pos; }
+[Serializable] public class EventInfo { public TimeInfo time; public TeamDetail team; public PlayerDetail player; public string type; public string detail; }
+[Serializable] public class TimeInfo { public int elapsed; }
